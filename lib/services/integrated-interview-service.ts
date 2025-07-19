@@ -1,7 +1,7 @@
 'use client'
 
-import { ElevenLabsConversationService, type ElevenLabsServiceConfig, type ElevenLabsConversationCallbacks } from './elevenlabs-conversation'
-import { GeminiEmotionDetector, type GeminiEmotionConfig, type GeminiEmotionCallbacks } from './gemini-emotion-detector'
+import { ElevenLabsConversationalService, type ElevenLabsConversationalConfig, type ElevenLabsConversationalCallbacks } from './elevenlabs-conversational'
+import { EmotionDetectionService, type EmotionDetectionConfig, type EmotionDetectionCallbacks } from './emotion-detection-service'
 import type { EmotionData, ElevenLabsConversationMetadata, WebSocketConnectionStatus } from '@/types/websocket'
 
 export interface IntegratedInterviewConfig {
@@ -59,8 +59,8 @@ export interface IntegratedInterviewCallbacks {
 }
 
 export class IntegratedInterviewService {
-  private elevenLabsService: ElevenLabsConversationService
-  private geminiEmotionDetector: GeminiEmotionDetector
+  private elevenLabsService: ElevenLabsConversationalService
+  private emotionDetectionService: EmotionDetectionService
   private config: IntegratedInterviewConfig
   private callbacks: IntegratedInterviewCallbacks
   
@@ -76,26 +76,23 @@ export class IntegratedInterviewService {
     this.callbacks = callbacks
 
     // Configure ElevenLabs service
-    const elevenLabsConfig: ElevenLabsServiceConfig = {
+    const elevenLabsConfig: ElevenLabsConversationalConfig = {
       agentId: config.elevenlabs.agentId,
       apiKey: config.elevenlabs.apiKey,
       conversationConfig: config.elevenlabs.conversationConfig,
       customLLMConfig: config.elevenlabs.customLLMConfig
     }
 
-    const elevenLabsCallbacks: ElevenLabsConversationCallbacks = {
-      onConnectionOpen: () => {
-        this.connectionStatus.elevenlabs = true
+    const elevenLabsCallbacks: ElevenLabsConversationalCallbacks = {
+      onConnectionChange: (connected) => {
+        this.connectionStatus.elevenlabs = connected
         this.checkAndNotifyConnectionStatus()
+      },
+      onConversationStart: () => {
         this.callbacks.onConversationStart?.()
       },
-      onConnectionClose: () => {
-        this.connectionStatus.elevenlabs = false
-        this.checkAndNotifyConnectionStatus()
+      onConversationEnd: () => {
         this.callbacks.onConversationEnd?.()
-      },
-      onConnectionError: (error) => {
-        this.callbacks.onError?.('elevenlabs', new Error('ElevenLabs connection error'))
       },
       onUserTranscript: (transcript) => {
         this.callbacks.onUserTranscript?.(transcript)
@@ -105,27 +102,27 @@ export class IntegratedInterviewService {
       },
       onAudioReceived: (audioBase64, eventId) => {
         this.callbacks.onAudioReceived?.(audioBase64, eventId)
+      },
+      onError: (error) => {
+        this.callbacks.onError?.('elevenlabs', error)
       }
     }
 
-    this.elevenLabsService = new ElevenLabsConversationService(elevenLabsConfig, elevenLabsCallbacks)
+    this.elevenLabsService = new ElevenLabsConversationalService(elevenLabsConfig, elevenLabsCallbacks)
 
-    // Configure Gemini emotion detector
-    const geminiConfig: GeminiEmotionConfig = {
-      apiKey: config.gemini.apiKey || process.env.NEXT_PUBLIC_GEMINI_API_KEY || 'demo-key',
-      model: config.gemini.model || 'gemini-pro-vision',
-      analysisInterval: config.gemini.analysisInterval || 2000,
-      confidenceThreshold: config.gemini.confidenceThreshold || 0.7
+    // Configure emotion detection service (Gemini + face-api.js fallback)
+    const emotionConfig: EmotionDetectionConfig = {
+      preferGemini: !!config.gemini.apiKey,
+      geminiConfig: config.gemini,
+      faceApiModelPath: '/models',
+      analysisInterval: config.gemini.analysisInterval || 2000
     }
 
-    const geminiCallbacks: GeminiEmotionCallbacks = {
+    const emotionCallbacks: EmotionDetectionCallbacks = {
       onEmotionDetected: (emotions) => {
         this.handleEmotionDetected(emotions)
       },
-      onMoodChange: (mood, intensity) => {
-        this.callbacks.onMoodChange?.(mood, intensity)
-      },
-      onConnectionStatusChange: (connected) => {
+      onConnectionChange: (connected) => {
         this.connectionStatus.gemini = connected
         this.checkAndNotifyConnectionStatus()
       },
@@ -134,7 +131,7 @@ export class IntegratedInterviewService {
       }
     }
 
-    this.geminiEmotionDetector = new GeminiEmotionDetector(geminiConfig, geminiCallbacks)
+    this.emotionDetectionService = new EmotionDetectionService(emotionConfig, emotionCallbacks)
   }
 
   async startInterview(): Promise<void> {

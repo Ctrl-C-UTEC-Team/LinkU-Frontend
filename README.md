@@ -1,15 +1,17 @@
 # LinkU - AI Interview Practice App
 
-A modern Next.js 15 application for practicing job interviews with AI using Gemini. Built with the latest React 19, Tailwind CSS 4.0, and advanced WebSocket integration for real-time conversational interviews.
+A modern Next.js 15 application for practicing job interviews with AI using **ElevenLabs Conversational AI** for natural conversation and **Gemini Vision API + face-api.js** for real-time emotion detection. Built with the latest React 19, Tailwind CSS 4.0, and advanced WebSocket integration.
 
 ## ✨ Features
 
 ### 🎯 **Core Functionality**
-- **Real-time AI Interview**: Practice with Gemini AI using voice and video
+- **Real-time AI Interview**: Natural conversation with ElevenLabs AI using voice and video
+- **Emotion Detection**: Real-time facial emotion analysis with Gemini Vision or face-api.js
 - **Smart Configuration**: Customize interviews by job position, experience level, and duration
 - **Live Transcription**: Real-time speech-to-text during interviews
-- **Comprehensive Feedback**: Detailed analysis with scoring and improvement suggestions
-- **Professional UI**: Modern design with dark theme and smooth animations
+- **Adaptive AI**: AI interviewer adapts based on detected stress levels and emotions
+- **Comprehensive Feedback**: Detailed analysis including emotional state throughout interview
+- **Professional UI**: Modern design with real-time emotion indicators
 
 ### 🚀 **Technical Stack**
 - **Next.js 15** with App Router and Turbopack
@@ -21,12 +23,14 @@ A modern Next.js 15 application for practicing job interviews with AI using Gemi
 - **Radix UI** for accessible components
 - **WebSocket** integration for real-time AI communication
 
-### 🎤 **Media Features**
-- **WebRTC** video/audio capture
-- **Audio Analysis** with real-time level detection
-- **MediaRecorder** for audio streaming
+### 🎤 **AI & Media Features**
+- **ElevenLabs Conversational AI** for natural interview conversation
+- **Gemini Vision API** for advanced emotion detection (optional)
+- **face-api.js** for local emotion detection (fallback)
+- **WebRTC** video/audio capture with real-time processing
+- **Audio Analysis** with voice activity detection
+- **Real-time Emotion Feedback** sent to AI interviewer for adaptive responses
 - **Permission Management** for camera/microphone access
-- **Audio Chunking** for continuous streaming to AI
 
 ## 🛠️ Setup Instructions
 
@@ -53,16 +57,28 @@ pnpm install
 ```
 
 3. **Environment Configuration**
-Create a `.env.local` file in the root directory:
-```env
-# Gemini AI Configuration
-NEXT_PUBLIC_GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_WEBSOCKET_URL=wss://your-gemini-websocket-endpoint
-
-# Optional: Development settings
-NODE_ENV=development
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+Copy the example environment file and configure your API keys:
+```bash
+cp .env.local.example .env.local
 ```
+
+Edit `.env.local` with your API keys:
+```env
+# REQUIRED: ElevenLabs Configuration
+NEXT_PUBLIC_ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+NEXT_PUBLIC_ELEVENLABS_AGENT_ID=your_agent_id_here
+
+# OPTIONAL: Gemini for advanced emotion detection
+NEXT_PUBLIC_GEMINI_API_KEY=your_gemini_api_key_here
+
+# OPTIONAL: Custom voice selection
+NEXT_PUBLIC_ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
+```
+
+**How to get API keys:**
+- **ElevenLabs**: Visit [ElevenLabs API Keys](https://elevenlabs.io/app/settings/api-keys)
+- **ElevenLabs Agent**: Create an agent at [Conversational AI](https://elevenlabs.io/app/conversational-ai)
+- **Gemini** (optional): Get key from [Google AI Studio](https://makersuite.google.com/app/apikey)
 
 4. **Start the development server**
 ```bash
@@ -76,30 +92,37 @@ Navigate to [http://localhost:3000](http://localhost:3000)
 
 ```
 LinkU-Frontend/
-├── app/                          # Next.js App Router
-│   ├── interview/               # Interview session page
-│   ├── results/                 # Results and feedback page
-│   ├── setup/                   # Interview configuration page
-│   ├── layout.tsx              # Root layout with theme provider
-│   └── page.tsx                # Home page
+├── app/                              # Next.js App Router
+│   ├── interview/                   # Interview session page with emotion detection
+│   ├── results/                     # Results and feedback page
+│   ├── setup/                       # Interview configuration page
+│   ├── layout.tsx                  # Root layout with theme provider
+│   └── page.tsx                    # Home page
 ├── components/
-│   ├── ui/                     # Reusable UI components (Radix UI + CVA)
+│   ├── ui/                         # Reusable UI components (Radix UI + CVA)
 │   │   ├── button.tsx
 │   │   ├── card.tsx
 │   │   ├── progress.tsx
 │   │   └── toast.tsx
-│   └── theme-provider.tsx      # Dark/light theme provider
+│   └── theme-provider.tsx          # Dark/light theme provider
 ├── lib/
 │   ├── services/
-│   │   └── gemini-websocket.ts # Gemini AI WebSocket service
+│   │   ├── elevenlabs-conversational.ts    # ElevenLabs conversation service
+│   │   ├── emotion-detection-service.ts    # Gemini + face-api.js emotion detection
+│   │   ├── integrated-interview-service.ts # Combined interview service
+│   │   └── gemini-emotion-detector.ts      # Legacy Gemini service
 │   ├── stores/
-│   │   └── interview-store.ts  # Zustand global state management
-│   └── utils.ts                # Utility functions
-├── types/                      # TypeScript type definitions
-│   ├── interview.ts
+│   │   └── interview-store.ts      # Zustand store with emotion state
+│   └── utils.ts                    # Utility functions
+├── types/                          # TypeScript type definitions
+│   ├── interview.ts               # Interview and emotion types
 │   ├── media.ts
 │   └── websocket.ts
-└── public/                     # Static assets
+├── public/
+│   └── models/                     # face-api.js ML models
+│       ├── face_expression_model-*
+│       └── README.md              # Model setup instructions
+└── .env.local.example             # Environment variables template
 ```
 
 ## 🎮 Usage Guide
@@ -112,44 +135,70 @@ LinkU-Frontend/
 - Grant camera and microphone permissions
 
 ### 2. Interview Session
-- **Video Feed**: See yourself during the interview
-- **Voice Interaction**: Speak naturally with AI interviewer
+- **Video Feed**: See yourself during the interview with emotion overlay
+- **Voice Interaction**: Natural conversation with ElevenLabs AI interviewer
 - **Live Transcription**: View real-time speech-to-text
-- **AI Status**: Monitor AI listening/processing states
+- **Emotion Detection**: Real-time mood, stress level, and engagement tracking
+- **Adaptive AI**: Interviewer responds to your emotional state
+- **Connection Status**: Monitor ElevenLabs and Emotion AI connections
 - **Controls**: Start/stop recording, pause/resume interview
 
 ### 3. Results Analysis
 - **Overall Score**: Comprehensive performance rating
-- **Competency Breakdown**: Detailed skill analysis
-- **Strengths & Improvements**: Specific feedback areas
+- **Competency Breakdown**: Detailed skill analysis including emotional intelligence
+- **Emotion Summary**: Complete emotional journey throughout interview
+- **Stress Analysis**: Stress level patterns and peak moments
+- **Engagement Metrics**: Attention and enthusiasm tracking
+- **Strengths & Improvements**: Specific feedback areas including emotional control
 - **Interview Metrics**: Words per minute, filler word analysis
-- **Export Options**: Download results as JSON
+- **Export Options**: Download results including emotion data as JSON
 
 ## 🔧 API Integration
 
-### Gemini WebSocket Configuration
+### ElevenLabs Conversational AI
 
-The app connects to Gemini AI through WebSocket for real-time conversation:
+The app uses ElevenLabs Conversational AI for natural interview conversations:
 
 ```typescript
-// Example WebSocket message structure
+// WebSocket connection to ElevenLabs
+const wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${agentId}`
+
+// Send audio chunk
 {
-  "type": "audio_chunk",
-  "audio_data": "base64_encoded_audio",
-  "timestamp": 1672531200000
+  "user_audio_chunk": "base64_encoded_audio"
 }
 
-// AI Response
+// Receive AI response
 {
-  "type": "interview_question",
-  "content": "Tell me about your experience with React",
-  "timestamp": 1672531201000
+  "type": "agent_response",
+  "agent_response_event": {
+    "agent_response": "Tell me about your experience with React"
+  }
 }
 ```
 
-### Mock Development Mode
+### Emotion Detection Integration
 
-For development without Gemini API access, the app includes a mock WebSocket service that simulates AI responses.
+**Gemini Vision API** (when available):
+- Captures video frames for emotion analysis
+- Sends contextual updates to ElevenLabs based on emotions
+- Provides confidence scores and detailed emotion breakdown
+
+**face-api.js** (fallback):
+- Local emotion detection using ML models
+- No external API calls required
+- Real-time facial expression analysis
+
+### Adaptive Interview Flow
+
+The AI interviewer receives emotion context:
+```typescript
+// Example emotion update sent to ElevenLabs
+{
+  "type": "contextual_update",
+  "text": "Candidate appears stressed (70%) and moderately engaged (60%). Adjust tone to be more encouraging."
+}
+```
 
 ## 🚀 Production Deployment
 
