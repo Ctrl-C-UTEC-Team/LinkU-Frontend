@@ -28,8 +28,10 @@ import {
   useCurrentEmotions,
   useCurrentMood,
   useStressLevel,
-  useEngagementLevel
+  useEngagementLevel,
+  useSelectedAgent
 } from "@/lib/stores/interview-store"
+import { AgentSelector } from "@/components/agent-selector"
 import type { InterviewConfig } from '@/types'
 
 interface RealtimeConversationProps {
@@ -58,6 +60,7 @@ export function RealtimeConversation({
   const currentMood = useCurrentMood()
   const stressLevel = useStressLevel()
   const engagementLevel = useEngagementLevel()
+  const selectedAgent = useSelectedAgent()
 
   const {
     initializeSession,
@@ -286,16 +289,38 @@ export function RealtimeConversation({
   const canRecord = isInterviewActive() && mediaStream && !isMuted
   const isConnected = connectionState.overall !== 'disconnected'
 
+  // If no agent is selected, show agent selector
+  if (!selectedAgent) {
+    return (
+      <div className={`w-full max-w-4xl mx-auto space-y-6 ${className}`}>
+        <AgentSelector 
+          interviewConfig={interviewConfig}
+          onAgentSelected={() => {
+            console.log('Agent selected successfully')
+          }}
+        />
+      </div>
+    )
+  }
+
   return (
     <Card className={`w-full max-w-4xl mx-auto p-6 space-y-6 ${className}`}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Brain className="h-8 w-8 text-blue-600" />
+          {selectedAgent.avatar ? (
+            <img 
+              src={selectedAgent.avatar} 
+              alt={selectedAgent.name}
+              className="w-10 h-10 rounded-full border-2 border-blue-200"
+            />
+          ) : (
+            <Brain className="h-10 w-10 text-blue-600" />
+          )}
           <div>
-            <h3 className="text-lg font-semibold">Entrevista de IA Integrada</h3>
+            <h3 className="text-lg font-semibold">Entrevista con {selectedAgent.name}</h3>
             <p className="text-sm text-muted-foreground">
-              Conversación con ElevenLabs + Análisis emocional con Gemini
+              {selectedAgent.description}
             </p>
           </div>
         </div>

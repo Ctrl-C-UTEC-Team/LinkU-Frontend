@@ -18,6 +18,8 @@ import type {
   InterviewResult
 } from '@/types'
 import type { EmotionData } from '@/types/websocket'
+import type { Agent, AgentSearchFilters, InterviewAgentConfig } from '@/types/agents'
+import { agentService } from '@/lib/services/agent-management'
 
 interface InterviewStore {
   // Session state
@@ -43,6 +45,13 @@ interface InterviewStore {
   currentMood: string
   stressLevel: number
   engagementLevel: number
+  
+  // Agent management state
+  availableAgents: Agent[]
+  selectedAgent: Agent | null
+  agentConfig: InterviewAgentConfig | null
+  isLoadingAgents: boolean
+  agentError: string | null
   
   // UI state
   isSetupComplete: boolean
@@ -72,6 +81,13 @@ interface InterviewStore {
   updateEngagementLevel: (level: number) => void
   requestEmotionAnalysis: () => void
   sendCustomContext: (context: string) => void
+  
+  // Agent management actions
+  loadAvailableAgents: (filters?: AgentSearchFilters) => Promise<void>
+  selectAgent: (agent: Agent) => void
+  updateAgentConfig: (config: Partial<InterviewAgentConfig>) => void
+  clearAgentSelection: () => void
+  setAgentError: (error: string | null) => void
 }
 
 const initialState = {
@@ -94,6 +110,11 @@ const initialState = {
   currentMood: 'neutral',
   stressLevel: 0.5,
   engagementLevel: 0.5,
+  availableAgents: [],
+  selectedAgent: null,
+  agentConfig: null,
+  isLoadingAgents: false,
+  agentError: null,
   isSetupComplete: false,
   currentMessage: '',
   transcript: [],
@@ -120,9 +141,14 @@ export const useInterviewStore = create<InterviewStore>()(
     },
 
     startInterview: async () => {
-      const { currentSession } = get()
+      const { currentSession, selectedAgent, agentConfig } = get()
+      
       if (!currentSession) {
         throw new Error('No active session configured')
+      }
+
+      if (!selectedAgent) {
+        throw new Error('No agent selected. Please select an agent before starting the interview.')
       }
 
       set(state => ({
@@ -133,30 +159,46 @@ export const useInterviewStore = create<InterviewStore>()(
       }))
 
       try {
-        // Create integrated service configuration
+        // Generate dynamic prompt based on agent and interview config
+        const agentPrompt = agentConfig?.customPromptOverride || 
+          `${selectedAgent.promptConfig.systemPrompt}
+          
+          Para esta entrevista específica:
+          - Puesto: ${currentSession.config.position}
+          - Nivel: ${currentSession.config.level}
+          - Duración: ${currentSession.config.duration} minutos
+          - Estilo de entrevista: ${selectedAgent.promptConfig.interviewStyle}
+          - Especialidad: ${selectedAgent.specialty}
+          
+          ${selectedAgent.promptConfig.specialInstructions || ''}
+          ${agentConfig?.sessionSpecificInstructions || ''}`
+
+        const firstMessage = `¡Hola! Soy ${selectedAgent.name}. ${selectedAgent.description} 
+        Estoy muy contento de conocerte hoy. Vamos a realizar una entrevista ${selectedAgent.personality} para el puesto de ${currentSession.config.position}. 
+        ¿Podrías comenzar presentándote brevemente?`
+
+        // Create integrated service configuration with selected agent
         const integratedConfig: IntegratedInterviewConfig = {
           elevenlabs: {
-            agentId: process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID || 'default-agent',
+            agentId: selectedAgent.elevenLabsAgentId || selectedAgent.id,
             apiKey: process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY,
             conversationConfig: {
               agent: {
                 prompt: {
-                  prompt: `Eres un entrevistador profesional de recursos humanos especializado en el puesto de ${currentSession.config.position}. 
-                  Realiza una entrevista estructurada y natural, ajustando tu estilo según el nivel ${currentSession.config.level} 
-                  y la duración de ${currentSession.config.duration} minutos. 
-                  Mantén un tono profesional pero amigable y haz preguntas de seguimiento relevantes.`
+                  prompt: agentPrompt
                 },
-                first_message: `¡Hola! Soy tu entrevistador de IA. Estoy muy contento de conocerte hoy. Vamos a realizar una entrevista para el puesto de ${currentSession.config.position}. ¿Podrías comenzar presentándote brevemente?`,
-                language: 'es'
+                first_message: firstMessage,
+                language: selectedAgent.voiceSettings.language
               },
               tts: {
-                voice_id: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM'
+                voice_id: agentConfig?.customVoiceSettings?.voiceId || selectedAgent.voiceSettings.voiceId
               }
             },
             customLLMConfig: {
               temperature: 0.7,
               max_tokens: 150
             }
+            // TODO: Add dynamicVariables support when available in IntegratedInterviewConfig
           },
           gemini: {
             apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY,
@@ -412,6 +454,51 @@ export const useInterviewStore = create<InterviewStore>()(
       }
     },
 
+    // Agent management actions
+    loadAvailableAgents: async (filters?: AgentSearchFilters) => {
+      set({ isLoadingAgents: true, agentError: null })
+      
+      try {
+        const response = await agentService.getAgents(filters)
+        set({ 
+          availableAgents: response.agents,
+          isLoadingAgents: false 
+        })
+      } catch (error: any) {
+        console.error('Failed to load agents:', error)
+        set({ 
+          agentError: error.message || 'Failed to load agents',
+          isLoadingAgents: false 
+        })
+      }
+    },
+
+    selectAgent: (agent: Agent) => {
+      set({ 
+        selectedAgent: agent,
+        agentConfig: agentService.agentToInterviewConfig(agent),
+        agentError: null 
+      })
+    },
+
+    updateAgentConfig: (config: Partial<InterviewAgentConfig>) => {
+      set((state) => ({
+        agentConfig: state.agentConfig ? { ...state.agentConfig, ...config } : null
+      }))
+    },
+
+    clearAgentSelection: () => {
+      set({ 
+        selectedAgent: null,
+        agentConfig: null,
+        agentError: null 
+      })
+    },
+
+    setAgentError: (error: string | null) => {
+      set({ agentError: error })
+    },
+
     completeSession: (feedback: any): InterviewResult => {
       const { currentSession, transcript } = get()
       if (!currentSession) {
@@ -472,3 +559,10 @@ export const useCurrentEmotions = () => useInterviewStore((state) => state.curre
 export const useCurrentMood = () => useInterviewStore((state) => state.currentMood)
 export const useStressLevel = () => useInterviewStore((state) => state.stressLevel)
 export const useEngagementLevel = () => useInterviewStore((state) => state.engagementLevel)
+
+// Agent management selectors
+export const useAvailableAgents = () => useInterviewStore((state) => state.availableAgents)
+export const useSelectedAgent = () => useInterviewStore((state) => state.selectedAgent)
+export const useAgentConfig = () => useInterviewStore((state) => state.agentConfig)
+export const useIsLoadingAgents = () => useInterviewStore((state) => state.isLoadingAgents)
+export const useAgentError = () => useInterviewStore((state) => state.agentError)

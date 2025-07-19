@@ -1,48 +1,49 @@
 'use client'
 
-import type { EmotionData } from '@/types/websocket'
+import type {
+  ElevenLabsClientEvent,
+  ElevenLabsServerEvent,
+  ElevenLabsConversationConfig,
+  ElevenLabsConversationMetadata,
+  WebSocketConnectionStatus,
+  EmotionData
+} from '@/types/websocket'
+
+export interface ElevenLabsConversationalCallbacks {
+  onConnectionChange?: (connected: boolean) => void
+  onConversationStart?: () => void
+  onConversationEnd?: () => void
+  onConversationMetadata?: (metadata: ElevenLabsConversationMetadata) => void
+  onUserTranscript?: (transcript: string) => void
+  onAgentResponse?: (response: string) => void
+  onAudioReceived?: (audioBase64: string, eventId: number) => void
+  onVADScore?: (score: number) => void
+  onInterruption?: (reason: string) => void
+  onError?: (error: Error) => void
+}
 
 export interface ElevenLabsConversationalConfig {
   agentId: string
   apiKey?: string
-  conversationConfig?: {
-    agent?: {
-      prompt?: {
-        prompt: string
-      }
-      first_message?: string
-      language?: string
-    }
-    tts?: {
-      voice_id: string
-    }
-  }
+  conversationConfig?: ElevenLabsConversationConfig
   customLLMConfig?: {
     temperature?: number
     max_tokens?: number
   }
-}
-
-export interface ElevenLabsConversationalCallbacks {
-  onConnectionChange: (connected: boolean) => void
-  onConversationStart: () => void
-  onConversationEnd: () => void
-  onUserTranscript: (transcript: string) => void
-  onAgentResponse: (response: string) => void
-  onAudioReceived: (audioBase64: string, eventId: number) => void
-  onError: (error: Error) => void
+  dynamicVariables?: Record<string, string>
 }
 
 export class ElevenLabsConversationalService {
   private ws: WebSocket | null = null
   private config: ElevenLabsConversationalConfig
   private callbacks: ElevenLabsConversationalCallbacks
-  private isConnected = false
+  private connectionStatus: WebSocketConnectionStatus = 'disconnected'
   private reconnectAttempts = 0
   private maxReconnectAttempts = 3
+  private reconnectDelay = 1000
   private audioQueue: HTMLAudioElement[] = []
   private isPlayingAudio = false
-  private conversationActive = false
+  private conversationId: string | null = null
 
   constructor(config: ElevenLabsConversationalConfig, callbacks: ElevenLabsConversationalCallbacks) {
     this.config = config
@@ -50,24 +51,12 @@ export class ElevenLabsConversationalService {
   }
 
   async startConversation(): Promise<void> {
-    try {
-      await this.connect()
-      this.conversationActive = true
-      this.callbacks.onConversationStart()
-    } catch (error) {
-      console.error('Failed to start conversation:', error)
-      throw error
+    if (this.connectionStatus === 'connected' || this.connectionStatus === 'connecting') {
+      return
     }
-  }
 
-  async endConversation(): Promise<void> {
-    this.conversationActive = false
-    this.disconnect()
-    this.callbacks.onConversationEnd()
-  }
-
-  private async connect(): Promise<void> {
-    if (this.isConnected) return
+    this.connectionStatus = 'connecting'
+    this.callbacks.onConnectionChange?.(false)
 
     try {
       const wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${this.config.agentId}`
@@ -78,184 +67,188 @@ export class ElevenLabsConversationalService {
       this.ws.onerror = this.handleError.bind(this)
       this.ws.onclose = this.handleClose.bind(this)
 
-      // Wait for connection
+      // Wait for connection to open
       await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
+        const timeoutId = setTimeout(() => {
           reject(new Error('Connection timeout'))
         }, 10000)
 
-        this.ws!.addEventListener('open', () => {
-          clearTimeout(timeout)
-          resolve()
-        }, { once: true })
-
-        this.ws!.addEventListener('error', () => {
-          clearTimeout(timeout)
-          reject(new Error('Connection failed'))
-        }, { once: true })
+        if (this.ws) {
+          this.ws.addEventListener('open', () => {
+            clearTimeout(timeoutId)
+            resolve()
+          }, { once: true })
+          
+          this.ws.addEventListener('error', () => {
+            clearTimeout(timeoutId)
+            reject(new Error('Connection failed'))
+          }, { once: true })
+        }
       })
 
     } catch (error) {
+      this.connectionStatus = 'error'
+      this.callbacks.onConnectionChange?.(false)
       console.error('Failed to connect to ElevenLabs:', error)
       throw error
     }
   }
 
   private handleOpen(): void {
-    console.log('ElevenLabs connected')
-    this.isConnected = true
+    console.log('ElevenLabs WebSocket connected')
+    this.connectionStatus = 'connected'
     this.reconnectAttempts = 0
-    this.callbacks.onConnectionChange(true)
-
-    // Send initial configuration
-    this.sendInitialConfiguration()
+    
+    // Send initial conversation configuration
+    this.sendConversationInitiation()
+    
+    this.callbacks.onConnectionChange?.(true)
+    this.callbacks.onConversationStart?.()
   }
 
   private handleMessage(event: MessageEvent): void {
     try {
-      const data = JSON.parse(event.data)
-
+      const data: ElevenLabsServerEvent = JSON.parse(event.data)
+      
       switch (data.type) {
         case 'conversation_initiation_metadata':
-          console.log('Conversation initiated:', data.conversation_initiation_metadata_event)
+          console.log('Conversation metadata:', data.conversation_initiation_metadata_event)
+          this.conversationId = data.conversation_initiation_metadata_event.conversation_id
+          this.callbacks.onConversationMetadata?.(data)
           break
 
         case 'user_transcript':
-          this.callbacks.onUserTranscript(data.user_transcription_event.user_transcript)
+          console.log('User transcript:', data.user_transcription_event.user_transcript)
+          this.callbacks.onUserTranscript?.(data.user_transcription_event.user_transcript)
           break
 
         case 'agent_response':
-          this.callbacks.onAgentResponse(data.agent_response_event.agent_response)
+          console.log('Agent response:', data.agent_response_event.agent_response)
+          this.callbacks.onAgentResponse?.(data.agent_response_event.agent_response)
           break
 
         case 'audio':
+          console.log('Audio received, event ID:', data.audio_event.event_id)
           this.handleAudioReceived(data.audio_event.audio_base_64, data.audio_event.event_id)
-          this.callbacks.onAudioReceived(data.audio_event.audio_base_64, data.audio_event.event_id)
+          this.callbacks.onAudioReceived?.(data.audio_event.audio_base_64, data.audio_event.event_id)
           break
 
         case 'ping':
+          console.log('Ping received, responding with pong')
           this.sendPong(data.ping_event.event_id, data.ping_event.ping_ms)
           break
 
         case 'vad_score':
-          // Voice activity detection score
+          console.log('VAD score:', data.vad_score_event.vad_score)
+          this.callbacks.onVADScore?.(data.vad_score_event.vad_score)
           break
 
         case 'interruption':
-          console.log('Conversation interrupted:', data.interruption_event)
+          console.log('Interruption:', data.interruption_event.reason)
+          this.callbacks.onInterruption?.(data.interruption_event.reason)
           break
 
         default:
-          console.log('Unknown ElevenLabs message:', data.type)
+          console.log('Unknown message type:', data)
       }
     } catch (error) {
-      console.error('Error parsing ElevenLabs message:', error)
+      console.error('Error handling WebSocket message:', error)
+      this.callbacks.onError?.(new Error('Failed to handle WebSocket message'))
     }
   }
 
   private handleError(error: Event): void {
     console.error('ElevenLabs WebSocket error:', error)
-    this.callbacks.onError(new Error('ElevenLabs connection error'))
+    this.connectionStatus = 'error'
+    this.callbacks.onConnectionChange?.(false)
+    this.callbacks.onError?.(new Error('ElevenLabs WebSocket error'))
   }
 
   private handleClose(): void {
-    console.log('ElevenLabs connection closed')
-    this.isConnected = false
-    this.callbacks.onConnectionChange(false)
-
-    // Attempt reconnection if conversation is still active
-    if (this.conversationActive && this.reconnectAttempts < this.maxReconnectAttempts) {
+    console.log('ElevenLabs WebSocket closed')
+    this.connectionStatus = 'disconnected'
+    this.callbacks.onConnectionChange?.(false)
+    this.callbacks.onConversationEnd?.()
+    
+    // Attempt to reconnect
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
       setTimeout(() => {
         this.reconnectAttempts++
-        console.log(`Reconnecting to ElevenLabs (${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
-        this.connect().catch(console.error)
-      }, 2000 * this.reconnectAttempts)
+        console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
+        this.startConversation()
+      }, this.reconnectDelay * this.reconnectAttempts)
     }
   }
 
-  private sendInitialConfiguration(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+  private sendMessage(message: ElevenLabsClientEvent): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(message))
+    } else {
+      console.warn('WebSocket not connected, cannot send message:', message)
+    }
+  }
 
-    const initMessage = {
+  private sendConversationInitiation(): void {
+    const initMessage: ElevenLabsClientEvent = {
       type: "conversation_initiation_client_data",
       conversation_config_override: this.config.conversationConfig,
-      custom_llm_extra_body: this.config.customLLMConfig
+      custom_llm_extra_body: this.config.customLLMConfig,
+      dynamic_variables: this.config.dynamicVariables
     }
-
-    this.ws.send(JSON.stringify(initMessage))
+    
+    this.sendMessage(initMessage)
   }
 
   private sendPong(eventId: number, pingMs?: number): void {
     const delay = pingMs || 0
-
+    
     setTimeout(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        const pongMessage = {
-          type: "pong",
-          event_id: eventId
-        }
-        this.ws.send(JSON.stringify(pongMessage))
+      const pongMessage: ElevenLabsClientEvent = {
+        type: "pong",
+        event_id: eventId
       }
+      this.sendMessage(pongMessage)
     }, delay)
   }
 
-  sendAudioChunk(audioBase64: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('ElevenLabs not connected, cannot send audio')
-      return
-    }
-
-    const audioMessage = {
+  public sendAudioChunk(audioBase64: string): void {
+    const audioMessage: ElevenLabsClientEvent = {
       user_audio_chunk: audioBase64
     }
-    this.ws.send(JSON.stringify(audioMessage))
+    this.sendMessage(audioMessage)
   }
 
-  sendUserMessage(text: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('ElevenLabs not connected, cannot send message')
-      return
+  public sendContextualUpdate(text: string): void {
+    const contextMessage: ElevenLabsClientEvent = {
+      type: "contextual_update",
+      text: text
     }
+    this.sendMessage(contextMessage)
+  }
 
-    const userMessage = {
+  public sendUserMessage(text: string): void {
+    const userMessage: ElevenLabsClientEvent = {
       type: "user_message",
       text: text
     }
-    this.ws.send(JSON.stringify(userMessage))
+    this.sendMessage(userMessage)
   }
 
-  sendContextualUpdate(context: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('ElevenLabs not connected, cannot send context')
-      return
-    }
-
-    const contextMessage = {
-      type: "contextual_update",
-      text: context
-    }
-    this.ws.send(JSON.stringify(contextMessage))
-  }
-
-  sendUserActivity(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
-
-    const activityMessage = {
+  public sendUserActivity(): void {
+    const activityMessage: ElevenLabsClientEvent = {
       type: "user_activity"
     }
-    this.ws.send(JSON.stringify(activityMessage))
+    this.sendMessage(activityMessage)
   }
 
-  sendEmotionUpdate(emotions: EmotionData[]): void {
-    if (!emotions.length) return
-
+  // Método para enviar información de emociones como actualización contextual
+  public sendEmotionUpdate(emotions: EmotionData[]): void {
     const emotionSummary = emotions.map(e => 
-      `${e.emotion} (${Math.round(e.intensity * 100)}%)`
+      `${e.emotion} (intensidad: ${e.intensity}, confianza: ${e.confidence})`
     ).join(', ')
-
-    const emotionContext = `Estado emocional actual del candidato: ${emotionSummary}. Ajusta tu estilo de entrevista para ser más empático y apropiado según estas emociones.`
     
-    this.sendContextualUpdate(emotionContext)
+    const emotionText = `Estado emocional del entrevistado: ${emotionSummary}`
+    this.sendContextualUpdate(emotionText)
   }
 
   private async handleAudioReceived(audioBase64: string, eventId: number): Promise<void> {
@@ -264,26 +257,29 @@ export class ElevenLabsConversationalService {
       const audioData = atob(audioBase64)
       const arrayBuffer = new ArrayBuffer(audioData.length)
       const uint8Array = new Uint8Array(arrayBuffer)
-
+      
       for (let i = 0; i < audioData.length; i++) {
         uint8Array[i] = audioData.charCodeAt(i)
       }
-
+      
       const audioBlob = new Blob([arrayBuffer], { type: 'audio/mpeg' })
       const audioUrl = URL.createObjectURL(audioBlob)
-
-      // Create and queue audio
+      
+      // Create audio element and queue it
       const audio = new Audio(audioUrl)
       audio.preload = 'auto'
+      
+      // Add to queue
       this.audioQueue.push(audio)
-
+      
       // Start playing if not already playing
       if (!this.isPlayingAudio) {
         this.playNextAudio()
       }
-
+      
     } catch (error) {
-      console.error('Error handling audio from ElevenLabs:', error)
+      console.error('Error handling audio:', error)
+      this.callbacks.onError?.(new Error('Failed to handle audio'))
     }
   }
 
@@ -295,21 +291,21 @@ export class ElevenLabsConversationalService {
 
     this.isPlayingAudio = true
     const audio = this.audioQueue.shift()!
-
+    
     try {
       await audio.play()
-
+      
       audio.onended = () => {
         URL.revokeObjectURL(audio.src)
         this.playNextAudio()
       }
-
+      
       audio.onerror = () => {
-        console.error('Error playing ElevenLabs audio')
+        console.error('Error playing audio')
         URL.revokeObjectURL(audio.src)
         this.playNextAudio()
       }
-
+      
     } catch (error) {
       console.error('Error playing audio:', error)
       URL.revokeObjectURL(audio.src)
@@ -317,38 +313,34 @@ export class ElevenLabsConversationalService {
     }
   }
 
-  pause(): void {
-    // ElevenLabs doesn't have native pause, so we'll stop sending audio
-    console.log('Pausing ElevenLabs conversation')
+  public getConnectionStatus(): WebSocketConnectionStatus {
+    return this.connectionStatus
   }
 
-  resume(): void {
-    console.log('Resuming ElevenLabs conversation')
+  public getConversationId(): string | null {
+    return this.conversationId
   }
 
-  isConnected(): boolean {
-    return this.isConnected && this.ws?.readyState === WebSocket.OPEN
+  public isConnected(): boolean {
+    return this.connectionStatus === 'connected'
   }
 
-  disconnect(): void {
-    this.conversationActive = false
-
+  public disconnect(): void {
     if (this.ws) {
       this.ws.close()
       this.ws = null
     }
-
-    this.isConnected = false
-
+    this.connectionStatus = 'disconnected'
+    this.conversationId = null
+    
     // Clear audio queue
     this.audioQueue.forEach(audio => {
       URL.revokeObjectURL(audio.src)
     })
     this.audioQueue = []
     this.isPlayingAudio = false
-  }
-
-  cleanup(): void {
-    this.disconnect()
+    
+    this.callbacks.onConnectionChange?.(false)
+    this.callbacks.onConversationEnd?.()
   }
 }
