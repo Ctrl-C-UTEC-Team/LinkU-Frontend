@@ -75,7 +75,7 @@ export default function HomePage() {
       <div className="max-w-7xl mx-auto px-4 pt-20 pb-16">
         <div className="text-center mb-16">
           <h1 className="text-6xl font-bold mb-6 gradient-text">
-            Practica tu Entrevista de Trabajo
+            Practica tu Entrevista de Trabajo con LinkU
           </h1>
           <p className="text-xl text-gray-300 mb-8 max-w-3xl mx-auto">
             Entrevístate con Andrea, nuestra entrevistadora de RRHH con IA. 
