@@ -56,6 +56,13 @@ export interface InterviewFeedback {
   recommendations: string[];
 }
 
+export interface EmotionSummary {
+  finalMood: string;
+  averageStressLevel: number;
+  averageEngagementLevel: number;
+  emotionHistory: any[]; // EmotionData[] - avoiding circular imports
+}
+
 export interface InterviewResult {
   sessionId: string;
   config: InterviewConfig;
@@ -63,4 +70,5 @@ export interface InterviewResult {
   transcript: ChatMessage[];
   feedback: InterviewFeedback;
   completedAt: number;
+  emotionSummary?: EmotionSummary;
 }
