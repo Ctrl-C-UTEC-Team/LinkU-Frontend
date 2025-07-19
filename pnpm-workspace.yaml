@@ -1,0 +1,7 @@
+ignoredBuiltDependencies:
+  - protobufjs
+  - sharp
+
+onlyBuiltDependencies:
+  - '@tailwindcss/oxide'
+  - unrs-resolver

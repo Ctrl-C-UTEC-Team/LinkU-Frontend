@@ -20,7 +20,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
-import { useInterviewStore } from '@/lib/stores/interview-store'
+import { 
+  useInterviewStore, 
+  useCurrentEmotions, 
+  useCurrentMood, 
+  useStressLevel,
+  useConnectionState 
+} from '@/lib/stores/interview-store'
 import { formatDuration, cn } from '@/lib/utils'
 import type { InterviewConfig, ChatMessage } from '@/types'
 
@@ -35,18 +41,22 @@ export default function InterviewPage() {
     mediaStream,
     isRecording,
     aiStatus,
-    connectionState,
     transcript,
     currentMessage,
     initializeSession,
-    updateSessionStatus,
-    addMessage,
+    startInterview,
+    stopInterview,
     setMediaStream,
     setRecording,
-    connectWebSocket,
     sendAudioChunk,
     updateAIStatus,
   } = useInterviewStore()
+
+  // New emotion state hooks
+  const connectionState = useConnectionState()
+  const currentEmotions = useCurrentEmotions()
+  const currentMood = useCurrentMood()
+  const stressLevel = useStressLevel()
 
   const [sessionTime, setSessionTime] = useState(0)
   const [isPaused, setIsPaused] = useState(false)
@@ -111,20 +121,20 @@ export default function InterviewPage() {
     }
   }, [setMediaStream])
 
-  // Connect to AI when session is ready
+  // Start interview when session is ready
   useEffect(() => {
     if (currentSession && currentSession.status === 'configuring') {
-      connectWebSocket()
-      updateSessionStatus('starting')
+      startInterview().catch(console.error)
     }
-  }, [currentSession, connectWebSocket, updateSessionStatus])
+  }, [currentSession, startInterview])
 
-  // Start interview when connected
+  // Set video element for emotion detection when video is ready
   useEffect(() => {
-    if (connectionState === 'connected' && currentSession?.status === 'starting') {
-      startInterview()
+    if (videoRef.current && mediaStream) {
+      // The integrated service will handle setting up emotion detection
+      // This happens automatically through the store
     }
-  }, [connectionState, currentSession])
+  }, [mediaStream])
 
   // Session timer
   useEffect(() => {
@@ -198,20 +208,7 @@ export default function InterviewPage() {
     }
   }
 
-  const startInterview = () => {
-    updateSessionStatus('in-progress')
-    updateAIStatus('listening')
-    
-    // Send initial AI prompt
-    const initialMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'assistant',
-      content: `Hello! I'm your AI interviewer today. I'll be conducting a ${config?.level} level ${config?.position} interview. Let's start with: Tell me about yourself and why you're interested in this ${config?.position} position.`,
-      timestamp: Date.now(),
-    }
-    
-    addMessage(initialMessage)
-  }
+  // Remove the old startInterview function as it's now handled by the store
 
   const toggleRecording = () => {
     if (!mediaRecorderRef.current) return
@@ -234,12 +231,17 @@ export default function InterviewPage() {
     }
   }
 
-  const endInterview = () => {
+  const endInterview = async () => {
     if (isRecording) {
       toggleRecording()
     }
-    updateSessionStatus('completed')
-    router.push('/results')
+    
+    try {
+      await stopInterview()
+      router.push('/results')
+    } catch (error) {
+      console.error('Error ending interview:', error)
+    }
   }
 
   const getAIStatusText = () => {
@@ -357,6 +359,84 @@ export default function InterviewPage() {
                     <Volume2 className="w-4 h-4" />
                     {getAIStatusText()}
                   </div>
+                </div>
+
+                {/* Connection Status */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className={cn(
+                    "flex items-center gap-1 px-2 py-1 rounded",
+                    connectionState.elevenlabs ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
+                  )}>
+                    <div className={cn(
+                      "w-2 h-2 rounded-full",
+                      connectionState.elevenlabs ? "bg-green-400" : "bg-red-400"
+                    )} />
+                    ElevenLabs
+                  </div>
+                  <div className={cn(
+                    "flex items-center gap-1 px-2 py-1 rounded",
+                    connectionState.gemini ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
+                  )}>
+                    <div className={cn(
+                      "w-2 h-2 rounded-full",
+                      connectionState.gemini ? "bg-green-400" : "bg-red-400"
+                    )} />
+                    Emotion AI
+                  </div>
+                </div>
+
+                {/* Emotion Display */}
+                <div className="space-y-2">
+                  <div className="text-center">
+                    <div className="text-sm text-gray-400">Current Mood</div>
+                    <div className={cn(
+                      "text-lg font-semibold capitalize",
+                      currentMood === 'happy' && "text-green-400",
+                      currentMood === 'sad' && "text-blue-400",
+                      currentMood === 'angry' && "text-red-400",
+                      currentMood === 'surprised' && "text-yellow-400",
+                      currentMood === 'fearful' && "text-purple-400",
+                      currentMood === 'disgusted' && "text-orange-400",
+                      currentMood === 'neutral' && "text-gray-400"
+                    )}>
+                      {currentMood}
+                    </div>
+                  </div>
+
+                  {/* Stress Level Indicator */}
+                  <div>
+                    <div className="flex justify-between text-xs text-gray-400 mb-1">
+                      <span>Stress Level</span>
+                      <span>{Math.round(stressLevel * 100)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-2">
+                      <div 
+                        className={cn(
+                          "h-2 rounded-full transition-all duration-500",
+                          stressLevel < 0.3 ? "bg-green-500" :
+                          stressLevel < 0.7 ? "bg-yellow-500" : "bg-red-500"
+                        )}
+                        style={{ width: `${stressLevel * 100}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Recent Emotions */}
+                  {currentEmotions.length > 0 && (
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">Recent Emotions</div>
+                      <div className="flex flex-wrap gap-1">
+                        {currentEmotions.slice(0, 3).map((emotion, index) => (
+                          <span 
+                            key={index}
+                            className="px-2 py-1 bg-gray-700/50 rounded text-xs"
+                          >
+                            {emotion.emotion} ({Math.round(emotion.intensity * 100)}%)
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Main Controls */}
