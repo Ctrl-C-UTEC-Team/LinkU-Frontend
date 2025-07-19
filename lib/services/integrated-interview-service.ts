@@ -140,8 +140,8 @@ export class IntegratedInterviewService {
       
       // Start both services in parallel
       await Promise.all([
-        this.elevenLabsService.connect(),
-        this.geminiEmotionDetector.connect()
+        this.elevenLabsService.startConversation(),
+        this.emotionDetectionService.startDetection()
       ])
 
       // Start periodic emotion updates if enabled
@@ -164,7 +164,7 @@ export class IntegratedInterviewService {
 
     // Disconnect both services
     this.elevenLabsService.disconnect()
-    this.geminiEmotionDetector.disconnect()
+    this.emotionDetectionService.stopDetection()
 
     console.log('Integrated interview service stopped')
   }
@@ -176,9 +176,9 @@ export class IntegratedInterviewService {
     // Send audio to ElevenLabs for conversation
     this.elevenLabsService.sendAudioChunk(audioBase64)
 
-    // Send audio to Gemini for emotion analysis
+    // Send audio to emotion detection for analysis
     if (audioBlob) {
-      this.geminiEmotionDetector.addAudioChunk(audioBlob)
+      this.emotionDetectionService.analyzeAudioEmotion(audioBlob)
     }
   }
 
@@ -220,7 +220,7 @@ export class IntegratedInterviewService {
         return
       }
 
-      const lastAnalysis = this.geminiEmotionDetector.getLastEmotionAnalysis()
+      const lastAnalysis = this.emotionDetectionService.getLastEmotionAnalysis()
       if (lastAnalysis && lastAnalysis.emotions.length > 0) {
         
         // Create contextual summary for ElevenLabs
@@ -270,24 +270,24 @@ export class IntegratedInterviewService {
   }
 
   public getCurrentMood(): string {
-    return this.geminiEmotionDetector.getCurrentMood()
+    return this.emotionDetectionService.getCurrentMood()
   }
 
   public getStressLevel(): number {
-    return this.geminiEmotionDetector.getStressLevel()
+    return this.emotionDetectionService.getStressLevel()
   }
 
   public getEngagementLevel(): number {
-    return this.geminiEmotionDetector.getEngagementLevel()
+    return this.emotionDetectionService.getEngagementLevel()
   }
 
   public getLastEmotionAnalysis() {
-    return this.geminiEmotionDetector.getLastEmotionAnalysis()
+    return this.emotionDetectionService.getLastEmotionAnalysis()
   }
 
   // Manual emotion analysis trigger
   public requestEmotionAnalysis(): void {
-    this.geminiEmotionDetector.requestEmotionAnalysis()
+    this.emotionDetectionService.forceAnalysis()
   }
 
   // Send custom contextual updates
@@ -301,7 +301,7 @@ export class IntegratedInterviewService {
   public async retryConnection(): Promise<void> {
     if (!this.connectionStatus.elevenlabs) {
       try {
-        await this.elevenLabsService.connect()
+        await this.elevenLabsService.startConversation()
       } catch (error) {
         console.error('Failed to reconnect ElevenLabs:', error)
       }
@@ -309,9 +309,9 @@ export class IntegratedInterviewService {
 
     if (!this.connectionStatus.gemini) {
       try {
-        await this.geminiEmotionDetector.connect()
+        await this.emotionDetectionService.startDetection()
       } catch (error) {
-        console.error('Failed to reconnect Gemini:', error)
+        console.error('Failed to reconnect emotion detection:', error)
       }
     }
   }
