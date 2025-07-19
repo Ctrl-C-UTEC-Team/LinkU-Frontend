@@ -32,7 +32,7 @@ export default function HomePage() {
   const router = useRouter()
 
   const handleStartInterview = () => {
-    router.push(`/use-existing-agent`)
+    router.push(`/setup`)
   }
 
   return (
@@ -42,7 +42,7 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <Target className="w-8 h-8 text-[#ff6b35]" />
-            <span className="text-xl font-bold">EntrevistaAI</span>
+            <span className="text-xl font-bold">LinkU - Interview Practice</span>
           </div>
           <div className="flex items-center space-x-4">
             <Button 
