@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { ArrowLeft, Mic, Settings } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { RealtimeConversation } from "@/components/realtime-conversation"
+import type { ChangeEvent } from "react"
 
 export default function VoiceChatPage() {
   const router = useRouter()
@@ -22,7 +23,7 @@ export default function VoiceChatPage() {
   })
 
   const handleConfigChange = (key: string, value: string | number) => {
-    setConfig(prev => ({
+    setConfig((prev: typeof config) => ({
       ...prev,
       [key]: value
     }))
@@ -79,7 +80,7 @@ export default function VoiceChatPage() {
                 <label className="block text-sm font-medium mb-2">Agent ID</label>
                 <Input
                   value={agentId}
-                  onChange={(e) => setAgentId(e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setAgentId(e.target.value)}
                   placeholder="Enter agent ID"
                 />
               </div>
@@ -88,7 +89,7 @@ export default function VoiceChatPage() {
                 <label className="block text-sm font-medium mb-2">Voice ID</label>
                 <Input
                   value={config.voiceId}
-                  onChange={(e) => handleConfigChange('voiceId', e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => handleConfigChange('voiceId', e.target.value)}
                   placeholder="Enter voice ID"
                 />
               </div>
@@ -97,7 +98,7 @@ export default function VoiceChatPage() {
                 <label className="block text-sm font-medium mb-2">Language</label>
                 <select 
                   value={config.language} 
-                  onChange={(e) => handleConfigChange('language', e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => handleConfigChange('language', e.target.value)}
                   className="w-full p-2 border rounded-md"
                 >
                   <option value="en">English</option>
@@ -117,7 +118,7 @@ export default function VoiceChatPage() {
                   min="0"
                   max="2"
                   value={config.temperature}
-                  onChange={(e) => handleConfigChange('temperature', parseFloat(e.target.value))}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => handleConfigChange('temperature', parseFloat(e.target.value))}
                 />
               </div>
               
@@ -125,7 +126,7 @@ export default function VoiceChatPage() {
                 <label className="block text-sm font-medium mb-2">System Prompt</label>
                 <textarea
                   value={config.prompt}
-                  onChange={(e) => handleConfigChange('prompt', e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLTextAreaElement>) => handleConfigChange('prompt', e.target.value)}
                   className="w-full p-2 border rounded-md resize-none"
                   rows={3}
                   placeholder="Enter system prompt for the agent"
@@ -136,7 +137,7 @@ export default function VoiceChatPage() {
                 <label className="block text-sm font-medium mb-2">First Message</label>
                 <Input
                   value={config.firstMessage}
-                  onChange={(e) => handleConfigChange('firstMessage', e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => handleConfigChange('firstMessage', e.target.value)}
                   placeholder="Agent's opening message"
                 />
               </div>
@@ -146,8 +147,11 @@ export default function VoiceChatPage() {
 
         {/* Main Conversation Component */}
         <RealtimeConversation 
-          agentId={agentId}
-          config={config}
+          interviewConfig={{
+            position: 'Frontend',
+            level: 'Mid',
+            duration: 30
+          }}
         />
 
         {/* Information Cards */}

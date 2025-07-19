@@ -176,6 +176,7 @@ export interface EmotionData {
   intensity: number;
   confidence: number;
   timestamp: number;
+  source?: string;
 }
 
 export interface GeminiEmotionResponse {

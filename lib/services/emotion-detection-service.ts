@@ -24,7 +24,7 @@ export interface EmotionDetectionCallbacks {
 export class EmotionDetectionService {
   private config: EmotionDetectionConfig
   private callbacks: EmotionDetectionCallbacks
-  private isConnected = false
+  private connected = false
   private isDetecting = false
   private isPaused = false
   
@@ -64,7 +64,7 @@ export class EmotionDetectionService {
         await this.initializeFaceApi()
       }
       
-      this.isConnected = true
+      this.connected = true
       this.isDetecting = true
       this.callbacks.onConnectionChange(true)
       
@@ -86,7 +86,7 @@ export class EmotionDetectionService {
       this.analysisTimer = undefined
     }
     
-    this.isConnected = false
+    this.connected = false
     this.callbacks.onConnectionChange(false)
   }
 
@@ -337,7 +337,7 @@ export class EmotionDetectionService {
 
   // Getters for current state
   isConnected(): boolean {
-    return this.isConnected
+    return this.connected
   }
 
   getCurrentEmotions(): EmotionData[] {

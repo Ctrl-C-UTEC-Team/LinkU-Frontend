@@ -50,6 +50,7 @@ export default function InterviewPage() {
     setRecording,
     sendAudioChunk,
     updateAIStatus,
+    addMessage,
   } = useInterviewStore()
 
   // New emotion state hooks

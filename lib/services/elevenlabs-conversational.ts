@@ -37,7 +37,7 @@ export class ElevenLabsConversationalService {
   private ws: WebSocket | null = null
   private config: ElevenLabsConversationalConfig
   private callbacks: ElevenLabsConversationalCallbacks
-  private isConnected = false
+  private connected = false
   private reconnectAttempts = 0
   private maxReconnectAttempts = 3
   private audioQueue: HTMLAudioElement[] = []
@@ -66,8 +66,8 @@ export class ElevenLabsConversationalService {
     this.callbacks.onConversationEnd()
   }
 
-  private async connect(): Promise<void> {
-    if (this.isConnected) return
+  async connect(): Promise<void> {
+    if (this.connected) return
 
     try {
       const wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${this.config.agentId}`
@@ -103,7 +103,7 @@ export class ElevenLabsConversationalService {
 
   private handleOpen(): void {
     console.log('ElevenLabs connected')
-    this.isConnected = true
+          this.connected = true
     this.reconnectAttempts = 0
     this.callbacks.onConnectionChange(true)
 
@@ -160,7 +160,7 @@ export class ElevenLabsConversationalService {
 
   private handleClose(): void {
     console.log('ElevenLabs connection closed')
-    this.isConnected = false
+    this.connected = false
     this.callbacks.onConnectionChange(false)
 
     // Attempt reconnection if conversation is still active
@@ -327,7 +327,7 @@ export class ElevenLabsConversationalService {
   }
 
   isConnected(): boolean {
-    return this.isConnected && this.ws?.readyState === WebSocket.OPEN
+    return this.connected && this.ws?.readyState === WebSocket.OPEN
   }
 
   disconnect(): void {
@@ -338,7 +338,7 @@ export class ElevenLabsConversationalService {
       this.ws = null
     }
 
-    this.isConnected = false
+    this.connected = false
 
     // Clear audio queue
     this.audioQueue.forEach(audio => {
