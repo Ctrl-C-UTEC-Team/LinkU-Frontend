@@ -29,6 +29,7 @@ import {
 } from '@/lib/stores/interview-store'
 import { formatDuration, cn } from '@/lib/utils'
 import type { InterviewConfig, ChatMessage } from '@/types'
+import { OfficialConversation } from '@/components/official-conversation'
 
 export default function InterviewPage() {
   const router = useRouter()
@@ -50,6 +51,7 @@ export default function InterviewPage() {
     setRecording,
     sendAudioChunk,
     updateAIStatus,
+    addMessage,
   } = useInterviewStore()
 
   // New emotion state hooks
@@ -492,62 +494,17 @@ export default function InterviewPage() {
             </Card>
           </div>
 
-          {/* Chat Transcript */}
+          {/* Conversación Oficial ElevenLabs */}
           <div className="lg:col-span-2">
-            <Card className="h-[600px] bg-gray-800/50 backdrop-blur">
-              <div className="flex items-center gap-2 p-4 border-b border-gray-700">
-                <MessageSquare className="w-5 h-5" />
-                <h3 className="font-semibold">Interview Conversation</h3>
-                <div className="ml-auto text-sm text-gray-400">
-                  {transcript.length} messages
-                </div>
-              </div>
-              
-              <div className="h-[520px] overflow-y-auto p-4 space-y-4">
-                <AnimatePresence initial={false}>
-                  {transcript.map((message, index) => (
-                    <motion.div
-                      key={message.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                      transition={{ duration: 0.3 }}
-                      className={cn(
-                        "flex gap-3",
-                        message.role === 'user' ? "justify-end" : "justify-start"
-                      )}
-                    >
-                      <div className={cn(
-                        "max-w-[80%] p-3 rounded-lg",
-                        message.role === 'user' 
-                          ? "bg-blue-600 text-white ml-auto" 
-                          : "bg-gray-700 text-gray-100"
-                      )}>
-                        <div className="text-sm mb-1">
-                          {message.role === 'user' ? 'You' : 'AI Interviewer'}
-                        </div>
-                        <div>{message.content}</div>
-                        {message.transcription && message.transcription !== message.content && (
-                          <div className="text-xs text-gray-300 mt-2 italic">
-                            Transcribed: {message.transcription}
-                          </div>
-                        )}
-                        <div className="text-xs text-gray-400 mt-1">
-                          {new Date(message.timestamp).toLocaleTimeString()}
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-                
-                {transcript.length === 0 && (
-                  <div className="text-center text-gray-400 mt-20">
-                    <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>Interview conversation will appear here</p>
-                  </div>
-                )}
-              </div>
-            </Card>
+            <OfficialConversation 
+              agentId={process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID || "agent_01k0hgmx13e0htbvt8k8bp6gwy"}
+              config={{
+                firstMessage: `¡Hola! Soy Andrea, tu entrevistadora de IA. Es un placer conocerte. Vamos a realizar una entrevista para el puesto de ${config?.position || 'desarrollador'}. ¿Podrías comenzar presentándote brevemente?`,
+                language: "es",
+                voiceId: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"
+              }}
+              className="h-[600px]"
+            />
           </div>
         </div>
       </div>
