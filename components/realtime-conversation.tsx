@@ -12,423 +12,266 @@ import {
   Phone, 
   PhoneOff,
   MessageCircle,
-  Brain,
   Loader2,
   Wifi,
   WifiOff,
-  Heart,
-  TrendingUp,
-  AlertTriangle
+  AlertCircle
 } from "lucide-react"
-import { 
-  useInterviewStore,
-  useInterviewSession,
-  useConnectionState,
-  useTranscript,
-  useCurrentEmotions,
-  useCurrentMood,
-  useStressLevel,
-  useEngagementLevel
-} from "@/lib/stores/interview-store"
-import type { InterviewConfig } from '@/types'
+import { ElevenLabsVoiceChat } from "@/lib/elevenlabs-voice-chat"
+
+interface ConversationConfig {
+  prompt: string;
+  firstMessage: string;
+  language: string;
+  voiceId: string;
+  temperature: number;
+  maxTokens: number;
+}
 
 interface RealtimeConversationProps {
-  interviewConfig: InterviewConfig
-  className?: string
+  agentId: string;
+  config: ConversationConfig;
+  className?: string;
+}
+
+interface Message {
+  id: string;
+  role: 'user' | 'agent';
+  content: string;
+  timestamp: number;
 }
 
 export function RealtimeConversation({ 
-  interviewConfig,
+  agentId,
+  config,
   className 
 }: RealtimeConversationProps) {
-  const [isRecording, setIsRecording] = useState(false)
+  const [isConnected, setIsConnected] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
+  const [status, setStatus] = useState("Desconectado")
   const [error, setError] = useState("")
-  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null)
+  const [messages, setMessages] = useState<Message[]>([])
   
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const voiceChatRef = useRef<ElevenLabsVoiceChat | null>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
-  const audioChunksRef = useRef<Blob[]>([])
-
-  // Store hooks
-  const currentSession = useInterviewSession()
-  const connectionState = useConnectionState()
-  const transcript = useTranscript()
-  const currentEmotions = useCurrentEmotions()
-  const currentMood = useCurrentMood()
-  const stressLevel = useStressLevel()
-  const engagementLevel = useEngagementLevel()
-
-  const {
-    initializeSession,
-    startInterview,
-    stopInterview,
-    sendAudioChunk,
-    sendUserMessage,
-    sendUserActivity,
-    updateMediaPermissions,
-    setRecording
-  } = useInterviewStore()
 
   // Auto-scroll transcript to bottom
   useEffect(() => {
     if (transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
-  }, [transcript])
+  }, [messages])
 
-  // Initialize session when component mounts
+  // Crear nueva instancia cuando cambie agentId
   useEffect(() => {
-    if (!currentSession) {
-      initializeSession(interviewConfig)
+    if (voiceChatRef.current) {
+      voiceChatRef.current.disconnect()
     }
-  }, [interviewConfig, currentSession, initializeSession])
-
-  // Get media permissions
-  const requestMediaPermissions = async (): Promise<MediaStream> => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 44100
-        },
-        video: false
-      })
+    
+    voiceChatRef.current = new ElevenLabsVoiceChat(agentId, {
+      onConnected: () => {
+        setIsConnected(true)
+        setError("")
+        console.log('✅ Conectado a ElevenLabs')
+      },
       
-      updateMediaPermissions({ microphone: 'granted' })
-      setMediaStream(stream)
-      return stream
-    } catch (error) {
-      console.error('Failed to get media permissions:', error)
-      updateMediaPermissions({ microphone: 'denied' })
-      throw new Error('Please allow microphone access to continue')
+      onDisconnected: () => {
+        setIsConnected(false)
+        console.log('❌ Desconectado de ElevenLabs')
+      },
+      
+      onUserTranscript: (text: string) => {
+        console.log('👤 Usuario:', text)
+        const newMessage: Message = {
+          id: Date.now().toString(),
+          role: 'user',
+          content: text,
+          timestamp: Date.now()
+        }
+        setMessages(prev => [...prev, newMessage])
+      },
+      
+      onAgentResponse: (text: string) => {
+        console.log('🤖 Agente:', text)
+        const newMessage: Message = {
+          id: Date.now().toString(),
+          role: 'agent',
+          content: text,
+          timestamp: Date.now()
+        }
+        setMessages(prev => [...prev, newMessage])
+      },
+      
+      onError: (errorMsg: string) => {
+        console.error('❌ Error:', errorMsg)
+        setError(errorMsg)
+      },
+      
+      onStatusChange: (statusMsg: string) => {
+        console.log('📊 Status:', statusMsg)
+        setStatus(statusMsg)
+      }
+    })
+    
+    // Cleanup on unmount
+    return () => {
+      if (voiceChatRef.current) {
+        voiceChatRef.current.disconnect()
+      }
     }
-  }
+  }, [agentId])
 
-  // Start interview
-  const handleStartInterview = async () => {
+  // Conectar a ElevenLabs
+  const handleConnect = async () => {
     try {
       setError("")
-      
-      if (!currentSession) {
-        throw new Error('No session configured')
+      if (voiceChatRef.current) {
+        await voiceChatRef.current.connect()
       }
-
-      // Request media permissions first
-      const stream = await requestMediaPermissions()
-      
-      // Start the integrated interview service
-      await startInterview()
-      
-      console.log('Interview started successfully')
-      
     } catch (error: any) {
-      console.error('Failed to start interview:', error)
-      setError(error.message || 'Failed to start interview')
+      console.error('Error conectando:', error)
+      setError(error.message || 'Error al conectar')
     }
   }
 
-  // Stop interview
-  const handleStopInterview = async () => {
-    try {
-      await stopInterview()
-      stopRecording()
-      
-      if (mediaStream) {
-        mediaStream.getTracks().forEach(track => track.stop())
-        setMediaStream(null)
-      }
-      
-      console.log('Interview stopped')
-      
-    } catch (error: any) {
-      console.error('Failed to stop interview:', error)
-      setError(error.message || 'Failed to stop interview')
+  // Desconectar
+  const handleDisconnect = () => {
+    if (voiceChatRef.current) {
+      voiceChatRef.current.disconnect()
     }
+    setMessages([]) // Limpiar mensajes al desconectar
   }
 
-  // Start recording
-  const startRecording = async () => {
-    if (!mediaStream || !isInterviewActive()) {
-      setError("Interview not active or media not available")
-      return
-    }
-
-    try {
-      audioChunksRef.current = []
-      
-      const mediaRecorder = new MediaRecorder(mediaStream, {
-        mimeType: 'audio/webm;codecs=opus'
-      })
-      
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data)
-          
-          // Send audio chunk for processing
-          sendAudioChunk(event.data)
-        }
-      }
-      
-      mediaRecorder.onerror = (event) => {
-        console.error('MediaRecorder error:', event)
-        setError('Recording error occurred')
-      }
-      
-      mediaRecorder.start(1000) // Capture chunks every 1 second
-      mediaRecorderRef.current = mediaRecorder
-      setIsRecording(true)
-      setRecording(true)
-      
-      // Send user activity signal
-      sendUserActivity()
-      
-    } catch (error: any) {
-      console.error('Failed to start recording:', error)
-      setError('Failed to start recording')
-    }
+  // Toggle mute (detener/reanudar audio del agente)
+  const handleToggleMute = () => {
+    setIsMuted(!isMuted)
+    // En una implementación más avanzada, esto controlaría el volumen del audio
   }
 
-  // Stop recording
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop()
-      mediaRecorderRef.current = null
-      setIsRecording(false)
-      setRecording(false)
-    }
-  }
-
-  // Toggle recording
-  const handleToggleRecording = () => {
-    if (isRecording) {
-      stopRecording()
-    } else {
-      startRecording()
-    }
-  }
-
-  // Send text message
+  // Enviar mensaje de texto (para testing)
   const handleSendTextMessage = () => {
-    if (!isInterviewActive()) {
-      setError("Interview not active")
-      return
-    }
-
-    const message = prompt("Enter your message:")
-    if (message && message.trim()) {
-      sendUserMessage(message.trim())
-    }
-  }
-
-  // Helper functions
-  const isInterviewActive = () => {
-    return connectionState.overall === 'connected' && 
-           connectionState.elevenlabs && 
-           connectionState.gemini
-  }
-
-  const getOverallStatusColor = () => {
-    switch (connectionState.overall) {
-      case 'connected': return 'bg-green-500'
-      case 'connecting': return 'bg-yellow-500'
-      case 'error': return 'bg-red-500'
-      default: return 'bg-gray-500'
-    }
-  }
-
-  const getOverallStatusText = () => {
-    switch (connectionState.overall) {
-      case 'connected': return 'Interview Active'
-      case 'connecting': return 'Starting Interview...'
-      case 'error': return 'Connection Error'
-      default: return 'Disconnected'
-    }
-  }
-
-  const getEmotionColor = (emotion: string) => {
-    const colorMap: Record<string, string> = {
-      'confidence': 'text-green-600',
-      'nervousness': 'text-orange-600',
-      'stress': 'text-red-600',
-      'engagement': 'text-blue-600',
-      'excitement': 'text-purple-600',
-      'boredom': 'text-gray-600',
-      'happiness': 'text-yellow-600',
-      'sadness': 'text-blue-800'
-    }
-    return colorMap[emotion.toLowerCase()] || 'text-gray-600'
-  }
-
-  const getStressLevelLabel = (level: number) => {
-    if (level > 0.7) return 'Alto'
-    if (level > 0.4) return 'Moderado'
-    return 'Bajo'
-  }
-
-  const getEngagementLevelLabel = (level: number) => {
-    if (level > 0.7) return 'Alto'
-    if (level > 0.4) return 'Moderado'
-    return 'Bajo'
-  }
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      stopRecording()
-      if (mediaStream) {
-        mediaStream.getTracks().forEach(track => track.stop())
+    const message = prompt("Escribe tu mensaje:")
+    if (message && message.trim() && voiceChatRef.current) {
+      // Enviar al agente a través de la API
+      voiceChatRef.current.sendTestMessage(message.trim())
+      
+      // También agregar a la UI
+      const newMessage: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: message.trim(),
+        timestamp: Date.now()
       }
+      setMessages(prev => [...prev, newMessage])
     }
-  }, [mediaStream])
+  }
 
-  const canRecord = isInterviewActive() && mediaStream && !isMuted
-  const isConnected = connectionState.overall !== 'disconnected'
+  const getStatusColor = () => {
+    if (error) return 'bg-red-500'
+    if (isConnected) return 'bg-green-500'
+    if (status.includes('Conectando')) return 'bg-yellow-500'
+    return 'bg-gray-500'
+  }
+
+  const getStatusIcon = () => {
+    if (error) return <AlertCircle className="h-3 w-3" />
+    if (isConnected) return <Wifi className="h-3 w-3" />
+    if (status.includes('Conectando')) return <Loader2 className="h-3 w-3 animate-spin" />
+    return <WifiOff className="h-3 w-3" />
+  }
 
   return (
     <Card className={`w-full max-w-4xl mx-auto p-6 space-y-6 ${className}`}>
-      {/* Header */}
+      {/* Header con status */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Brain className="h-8 w-8 text-blue-600" />
+          <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
+            <Mic className="h-6 w-6 text-white" />
+          </div>
           <div>
-            <h3 className="text-lg font-semibold">Entrevista de IA Integrada</h3>
+            <h3 className="text-lg font-semibold">Chat de Voz en Tiempo Real</h3>
             <p className="text-sm text-muted-foreground">
-              Conversación con ElevenLabs + Análisis emocional con Gemini
+              Agent ID: {agentId}
             </p>
           </div>
         </div>
         
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className={`${getOverallStatusColor()} text-white`}>
+          <Badge variant="outline" className={`${getStatusColor()} text-white`}>
             <div className="flex items-center gap-1">
-              {connectionState.overall === 'connecting' ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : isConnected ? (
-                <Wifi className="h-3 w-3" />
-              ) : (
-                <WifiOff className="h-3 w-3" />
-              )}
-              {getOverallStatusText()}
+              {getStatusIcon()}
+              {error || status}
             </div>
           </Badge>
         </div>
       </div>
 
-      {/* Connection Status */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-          <div className={`w-3 h-3 rounded-full ${connectionState.elevenlabs ? 'bg-green-500' : 'bg-red-500'}`} />
-          <span className="text-sm font-medium">ElevenLabs</span>
-          <span className="text-xs text-muted-foreground">
-            {connectionState.elevenlabs ? 'Conectado' : 'Desconectado'}
-          </span>
+      {/* Configuración actual */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-3 bg-muted rounded-lg text-xs">
+        <div>
+          <span className="font-medium">Idioma:</span> {config.language}
         </div>
-        
-        <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-          <div className={`w-3 h-3 rounded-full ${connectionState.gemini ? 'bg-green-500' : 'bg-red-500'}`} />
-          <span className="text-sm font-medium">Gemini (Emociones)</span>
-          <span className="text-xs text-muted-foreground">
-            {connectionState.gemini ? 'Analizando' : 'Desconectado'}
-          </span>
+        <div>
+          <span className="font-medium">Voice ID:</span> {config.voiceId.slice(0, 8)}...
+        </div>
+        <div>
+          <span className="font-medium">Temp:</span> {config.temperature}
+        </div>
+        <div>
+          <span className="font-medium">Tokens:</span> {config.maxTokens}
         </div>
       </div>
 
-      {/* Interview Controls */}
+      {/* Controles principales */}
       <div className="flex gap-2">
         {!isConnected ? (
-          <Button onClick={handleStartInterview} className="flex-1">
+          <Button onClick={handleConnect} className="flex-1" disabled={!!error && !error.includes('micrófono')}>
             <Phone className="h-4 w-4 mr-2" />
-            Iniciar Entrevista
+            Conectar Chat de Voz
           </Button>
         ) : (
-          <Button onClick={handleStopInterview} variant="destructive" className="flex-1">
+          <Button onClick={handleDisconnect} variant="destructive" className="flex-1">
             <PhoneOff className="h-4 w-4 mr-2" />
-            Finalizar Entrevista
+            Desconectar
           </Button>
         )}
         
         <Button 
-          onClick={() => setIsMuted(!isMuted)} 
+          onClick={handleToggleMute} 
           variant="outline"
           disabled={!isConnected}
         >
           {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
         </Button>
+        
+        <Button 
+          onClick={handleSendTextMessage} 
+          variant="outline"
+          disabled={!isConnected}
+          title="Enviar mensaje de texto (para testing)"
+        >
+          <MessageCircle className="h-4 w-4" />
+        </Button>
+        
+        <Button 
+          onClick={() => voiceChatRef.current?.sendTestMessage("Hola, ¿cómo estás?")} 
+          variant="outline"
+          disabled={!isConnected}
+          title="Activar agente manualmente"
+          size="sm"
+        >
+          🤝 Activar
+        </Button>
       </div>
 
-      {/* Audio Controls */}
-      {isInterviewActive() && (
-        <div className="flex gap-2">
-          <Button
-            onClick={handleToggleRecording}
-            disabled={!canRecord}
-            variant={isRecording ? "destructive" : "default"}
-            className="flex-1"
-          >
-            {isRecording ? (
-              <>
-                <MicOff className="h-4 w-4 mr-2" />
-                Detener Grabación
-              </>
-            ) : (
-              <>
-                <Mic className="h-4 w-4 mr-2" />
-                Iniciar Grabación
-              </>
-            )}
-          </Button>
-          
-          <Button onClick={handleSendTextMessage} variant="outline">
-            <MessageCircle className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
-
-      {/* Emotion Dashboard */}
-      {isInterviewActive() && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-muted rounded-lg">
-          <div className="flex items-center gap-2">
-            <Heart className="h-5 w-5 text-pink-500" />
-            <div>
-              <div className="text-sm font-medium">Estado Emocional</div>
-              <div className={`text-sm ${getEmotionColor(currentMood)}`}>
-                {currentMood || 'Neutral'}
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-orange-500" />
-            <div>
-              <div className="text-sm font-medium">Nivel de Estrés</div>
-              <div className={`text-sm ${stressLevel > 0.6 ? 'text-red-600' : 'text-green-600'}`}>
-                {getStressLevelLabel(stressLevel)} ({Math.round(stressLevel * 100)}%)
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-blue-500" />
-            <div>
-              <div className="text-sm font-medium">Compromiso</div>
-              <div className={`text-sm ${engagementLevel > 0.6 ? 'text-green-600' : 'text-orange-600'}`}>
-                {getEngagementLevelLabel(engagementLevel)} ({Math.round(engagementLevel * 100)}%)
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Conversation Transcript */}
+      {/* Transcripción de la conversación */}
       <div className="space-y-4">
         <div 
           ref={transcriptRef}
           className="min-h-[300px] max-h-[400px] overflow-y-auto p-4 bg-muted rounded-lg space-y-3"
         >
-          {transcript.length > 0 ? (
-            transcript.map((message) => (
+          {messages.length > 0 ? (
+            messages.map((message) => (
               <div
                 key={message.id}
                 className={`p-3 rounded-lg ${
@@ -438,7 +281,7 @@ export function RealtimeConversation({
                 }`}
               >
                 <div className="text-xs text-muted-foreground mb-1">
-                  {message.role === 'user' ? 'Tú:' : 'Entrevistador:'}
+                  {message.role === 'user' ? '👤 Tú:' : '🤖 Agente:'}
                   <span className="ml-2">
                     {new Date(message.timestamp).toLocaleTimeString()}
                   </span>
@@ -446,30 +289,40 @@ export function RealtimeConversation({
                 <div className="text-sm">{message.content}</div>
               </div>
             ))
-          ) : isInterviewActive() ? (
+          ) : isConnected ? (
             <div className="text-center text-muted-foreground py-8">
               <Mic className="h-12 w-12 mx-auto mb-2 opacity-50" />
-              <p>Presiona "Iniciar Grabación" para comenzar a hablar</p>
+              <p className="font-medium">¡Conectado! Comienza a hablar</p>
               <p className="text-xs mt-2">
-                El entrevistador te dará la bienvenida automáticamente
+                El agente te escucha automáticamente. Tu voz será transcrita aquí.
               </p>
+              <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg text-blue-700 dark:text-blue-300">
+                <p className="text-xs">
+                  <strong>Primer mensaje:</strong> {config.firstMessage}
+                </p>
+              </div>
             </div>
           ) : (
             <div className="text-center text-muted-foreground py-8">
               <Phone className="h-12 w-12 mx-auto mb-2 opacity-50" />
-              <p>Presiona "Iniciar Entrevista" para comenzar</p>
+              <p>Presiona "Conectar Chat de Voz" para comenzar</p>
+              <p className="text-xs mt-2">
+                Se solicitarán permisos de micrófono automáticamente
+              </p>
             </div>
           )}
           
-          {isRecording && (
-            <div className="bg-red-100 dark:bg-red-900 p-3 rounded-lg animate-pulse">
+          {isConnected && status.includes('Micrófono activo') && (
+            <div className="bg-green-100 dark:bg-green-900 p-3 rounded-lg">
               <div className="flex items-center gap-2">
-                <Mic className="h-4 w-4 text-red-600" />
-                <span className="text-sm font-medium">Grabando...</span>
+                <Mic className="h-4 w-4 text-green-600" />
+                <span className="text-sm font-medium text-green-800 dark:text-green-200">
+                  Micrófono activo - Habla normalmente
+                </span>
                 <div className="flex gap-1">
-                  <div className="w-1 h-4 bg-red-500 animate-pulse"></div>
-                  <div className="w-1 h-4 bg-red-500 animate-pulse delay-75"></div>
-                  <div className="w-1 h-4 bg-red-500 animate-pulse delay-150"></div>
+                  <div className="w-1 h-4 bg-green-500 animate-pulse"></div>
+                  <div className="w-1 h-4 bg-green-500 animate-pulse delay-75"></div>
+                  <div className="w-1 h-4 bg-green-500 animate-pulse delay-150"></div>
                 </div>
               </div>
             </div>
@@ -486,31 +339,14 @@ export function RealtimeConversation({
         )}
       </div>
 
-      {/* Current Emotions Display */}
-      {currentEmotions.length > 0 && (
-        <div className="p-3 bg-muted rounded-lg">
-          <div className="text-sm font-medium mb-2">Emociones Detectadas:</div>
-          <div className="flex flex-wrap gap-2">
-            {currentEmotions.map((emotion, index) => (
-              <Badge 
-                key={index} 
-                variant="outline" 
-                className={`text-xs ${getEmotionColor(emotion.emotion)}`}
-              >
-                {emotion.emotion} ({Math.round(emotion.intensity * 100)}%)
-              </Badge>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Instructions */}
+      {/* Información técnica */}
       <div className="text-xs text-muted-foreground space-y-1 border-t pt-4">
-        <p><strong>Instrucciones:</strong></p>
-        <p>1. Presiona "Iniciar Entrevista" para conectar con ElevenLabs y Gemini</p>
-        <p>2. Presiona "Iniciar Grabación" para hablar con el entrevistador de IA</p>
-        <p>3. El sistema analizará tus emociones en tiempo real y las mostrará arriba</p>
-        <p>4. El entrevistador ajustará su estilo basándose en tu estado emocional</p>
+        <p><strong>Cómo funciona:</strong></p>
+        <p>1. ✅ WebSocket se conecta a ElevenLabs API</p>
+        <p>2. ✅ Audio se captura en PCM 16-bit 16kHz mono</p>
+        <p>3. ✅ Transcripción y respuesta en tiempo real</p>
+        <p>4. ✅ Audio del agente se reproduce automáticamente</p>
+        <p>5. ✅ Manejo de pings/pongs para mantener conexión</p>
       </div>
     </Card>
   )
